@@ -50,6 +50,28 @@ def _test_stdin_data(test, stdin_data):
     return test.stdin_data if stdin_data is None else stdin_data
 
 
+def _trusted_semihosting_args(qemu_args, *, chardev_id=None):
+    args = [arg for arg in qemu_args if arg != "-semihosting"]
+
+    for index, arg in enumerate(args[:-1]):
+        if arg != "-semihosting-config":
+            continue
+
+        config = args[index + 1]
+        if "userspace=" not in config:
+            config = f"{config},userspace=on"
+        if chardev_id is not None and "chardev=" not in config:
+            config = f"{config},chardev={chardev_id}"
+        args[index + 1] = config
+        return tuple(args)
+
+    args.extend(QEMU_SEMIHOSTING_ARGS)
+    if chardev_id is not None:
+        args[-1] = f"{args[-1]},chardev={chardev_id}"
+
+    return tuple(args)
+
+
 def _semihosting_config_args(test, *, chardev=None, chardev_id=None):
     args = list(test.qemu_args)
 
@@ -57,30 +79,20 @@ def _semihosting_config_args(test, *, chardev=None, chardev_id=None):
         assert chardev_id is not None
         args.extend(("-chardev", chardev))
 
-        for index, arg in enumerate(args[:-1]):
-            if arg == "-semihosting-config":
-                config = args[index + 1]
-                if "chardev=" not in config:
-                    args[index + 1] = f"{config},chardev={chardev_id}"
-                return tuple(args)
-
-        args.extend(("-semihosting-config", f"enable=on,chardev={chardev_id}"))
-        return tuple(args)
-
-    if not any(arg == "-semihosting" or arg == "-semihosting-config"
-               for arg in args):
-        args.extend(QEMU_SEMIHOSTING_ARGS)
-
-    return tuple(args)
+    return _trusted_semihosting_args(args, chardev_id=chardev_id)
 
 
-def _run_one(qemu, workdir, test, runner, *, qemu_args=(), stdin_data=None):
+def _run_one(qemu, workdir, test, runner, *, qemu_args=(), stdin_data=None,
+             trusted_semihosting=True):
     image = workdir / f"{test.name}.bin"
     log = workdir / f"{test.name}.log"
 
     image.write_bytes(test.program)
     if log.exists():
         log.unlink()
+
+    if trusted_semihosting:
+        qemu_args = _trusted_semihosting_args(qemu_args)
 
     completed = runner(qemu, image, trace="int", log=log,
                        qemu_args=qemu_args, check=False, timeout=10,
@@ -92,9 +104,11 @@ def _run_one(qemu, workdir, test, runner, *, qemu_args=(), stdin_data=None):
     assert_regs(test.name, result, test.regs)
 
 
-def run_one(qemu, workdir, test, *, qemu_args=(), stdin_data=None):
+def run_one(qemu, workdir, test, *, qemu_args=(), stdin_data=None,
+            trusted_semihosting=True):
     _run_one(qemu, workdir, test, run_kernel, qemu_args=qemu_args,
-             stdin_data=stdin_data)
+             stdin_data=stdin_data,
+             trusted_semihosting=trusted_semihosting)
 
 
 def run_one_with_loader(qemu, workdir, test, *, qemu_args=(), stdin_data=None):
@@ -159,7 +173,7 @@ def run_semihosting_expected_failure(qemu, workdir, test):
 
 
 def run_semihosting_disabled_expected_failure(qemu, workdir, test):
-    run_expected_failure(qemu, workdir, _as_hosted_mmo(test))
+    run_expected_failure(qemu, workdir, test)
 
 
 def run_process_failure(qemu, workdir, test):
@@ -209,6 +223,7 @@ def run_serial_test(qemu, workdir, test, *, qemu_args=(), stdin_data=None):
         if path.exists():
             path.unlink()
 
+    qemu_args = _trusted_semihosting_args(qemu_args)
     completed = run_kernel(
         qemu,
         image,
@@ -329,8 +344,9 @@ def run_mmo_test(qemu, workdir, test):
     if log.exists():
         log.unlink()
 
+    qemu_args = _trusted_semihosting_args(test.qemu_args)
     completed = run_kernel(qemu, image, trace="int", log=log,
-                           qemu_args=test.qemu_args, check=False, timeout=10)
+                           qemu_args=qemu_args, check=False, timeout=10)
 
     result = read_log(log)
     assert_exit_pc(test.name, result, test.pc)
@@ -349,8 +365,9 @@ def run_elf_test(qemu, workdir, test):
             path.unlink()
 
     serial_arg = f"file:{serial}" if test.output is not None else "none"
+    qemu_args = _trusted_semihosting_args(test.qemu_args)
     completed = run_kernel(qemu, image, serial=serial_arg, trace="int",
-                           log=log, qemu_args=test.qemu_args, check=False,
+                           log=log, qemu_args=qemu_args, check=False,
                            timeout=10)
 
     result = read_log(log)
@@ -444,7 +461,7 @@ def run_mttcg_elf_test(qemu, workdir, test):
         trace="int",
         log=log,
         qemu_args=(
-            *test.qemu_args,
+            *_trusted_semihosting_args(test.qemu_args),
             "-S",
             "-qmp",
             "stdio",
@@ -1170,12 +1187,13 @@ def run_linux_smp_entry_test(qemu, workdir, test):
     image.write_bytes(test.image)
     if log.exists():
         log.unlink()
+    qemu_args = _trusted_semihosting_args(test.qemu_args)
     completed = run_kernel(
         qemu,
         image,
         trace="int",
         log=log,
-        qemu_args=test.qemu_args,
+        qemu_args=qemu_args,
         check=False,
         timeout=10,
     )
@@ -2506,7 +2524,7 @@ def _run_mttcg_qtest_test(qemu, workdir, test, protocol, socket_name,
     listener.listen(1)
     listener.settimeout(5)
     qemu_args = (
-        *test.qemu_args,
+        *_trusted_semihosting_args(test.qemu_args),
         "-S",
         "-qmp",
         "stdio",

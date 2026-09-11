@@ -10,13 +10,16 @@ import re
 import subprocess
 from typing import Dict, Optional
 
-QEMU_SEMIHOSTING_ARGS = ("-semihosting",)
+QEMU_SEMIHOSTING_ARGS = (
+    "-semihosting-config",
+    "enable=on,userspace=on",
+)
 QEMU_SEMIHOSTING_STDIN_CHARDEV = "mmix-semihosting-stdin"
 QEMU_SEMIHOSTING_STDIN_ARGS = (
     "-chardev",
     f"stdio,id={QEMU_SEMIHOSTING_STDIN_CHARDEV},signal=off",
     "-semihosting-config",
-    f"enable=on,chardev={QEMU_SEMIHOSTING_STDIN_CHARDEV}",
+    f"enable=on,userspace=on,chardev={QEMU_SEMIHOSTING_STDIN_CHARDEV}",
 )
 
 

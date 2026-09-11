@@ -13,5 +13,5 @@ def test_semihosting_stdin_args_use_stdio_chardev():
         "-chardev",
         f"stdio,id={QEMU_SEMIHOSTING_STDIN_CHARDEV},signal=off",
         "-semihosting-config",
-        f"enable=on,chardev={QEMU_SEMIHOSTING_STDIN_CHARDEV}",
+        f"enable=on,userspace=on,chardev={QEMU_SEMIHOSTING_STDIN_CHARDEV}",
     )

@@ -13,11 +13,12 @@ from cases.common import (
     case_id,
 )
 from cases.expected_failures import (
-    SEMIHOSTING_DISABLED_FAILURE_TESTS,
+    SEMIHOSTING_DISABLED_TRAP_TESTS,
     SEMIHOSTING_EXPECTED_FAILURE_TESTS,
     SEMIHOSTING_PROCESS_FAILURE_TESTS,
 )
 from cases.semihosting import (
+    SEMIHOSTING_PERMISSION_TESTS,
     SEMIHOSTING_TESTS,
     fclose_failure_test,
     fgets_failure_test,
@@ -42,6 +43,7 @@ from cases.semihosting import (
 )
 from cases.serial import SEMIHOSTING_CONSOLE_TESTS
 from lib.execution import (
+    run_one,
     run_process_failure,
     run_semihosting_disabled_expected_failure,
     run_semihosting_expected_failure,
@@ -54,6 +56,12 @@ from lib.execution import (
 @pytest.mark.parametrize("test", SEMIHOSTING_TESTS, ids=case_id)
 def test_semihosting(qemu, workdir, test):
     run_semihosting_one(qemu, workdir, test)
+
+
+@pytest.mark.parametrize("test", SEMIHOSTING_PERMISSION_TESTS, ids=case_id)
+def test_semihosting_userspace_permission(qemu, workdir, test):
+    run_one(qemu, workdir, test, qemu_args=test.qemu_args,
+            trusted_semihosting=False)
 
 
 def test_semihosting_fopen_fclose(qemu, workdir):
@@ -413,9 +421,9 @@ def test_semihosting_expected_failure(qemu, workdir, test):
     run_semihosting_expected_failure(qemu, workdir, test)
 
 
-@pytest.mark.parametrize("test", SEMIHOSTING_DISABLED_FAILURE_TESTS,
+@pytest.mark.parametrize("test", SEMIHOSTING_DISABLED_TRAP_TESTS,
                          ids=case_id)
-def test_semihosting_disabled_expected_failure(qemu, workdir, test):
+def test_semihosting_disabled_architectural_trap(qemu, workdir, test):
     run_semihosting_disabled_expected_failure(qemu, workdir, test)
 
 

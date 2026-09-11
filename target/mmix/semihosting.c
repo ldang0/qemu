@@ -517,17 +517,6 @@ static void mmix_semihosting_ftell_complete(CPUState *cs, uint64_t ret,
 }
 
 static G_NORETURN void
-mmix_semihosting_raise_disabled(CPUMMIXState *env,
-                                const MMIXSemihostingCall *call)
-{
-    qemu_log_mask(LOG_UNIMP,
-                  "MMIX semihosting disabled for hosted TRAP service %u "
-                  "handle %u at 0x%016" PRIx64 "\n",
-                  call->service, call->handle, env->pc);
-    mmix_cpu_raise_emulator_failure(env);
-}
-
-static G_NORETURN void
 mmix_semihosting_raise_fputs_bad_handle(CPUMMIXState *env,
                                         const MMIXSemihostingCall *call)
 {
@@ -943,10 +932,6 @@ static void mmix_semihosting_fputs_console(CPUMMIXState *env,
     GByteArray *bytes;
     uint64_t address;
 
-    if (!semihosting_enabled(false)) {
-        mmix_semihosting_raise_disabled(env, call);
-    }
-
     bytes = g_byte_array_new();
     address = mmix_cpu_read_reg(env, 255);
 
@@ -1279,10 +1264,6 @@ static void mmix_semihosting_ftell(CPUMMIXState *env,
 static void mmix_semihosting_file_service(CPUMMIXState *env,
                                           const MMIXSemihostingCall *call)
 {
-    if (!semihosting_enabled(false)) {
-        mmix_semihosting_raise_disabled(env, call);
-    }
-
     switch (call->action) {
     case MMIX_SEMIHOSTING_ACTION_FOPEN:
         mmix_semihosting_fopen(env, call);
@@ -1310,10 +1291,15 @@ static void mmix_semihosting_file_service(CPUMMIXState *env,
     }
 }
 
-void helper_mmix_semihosting_trap(CPUMMIXState *env, uint32_t service,
-                                  uint32_t handle)
+void helper_mmix_semihosting_trap(CPUMMIXState *env, uint32_t insn,
+                                  uint32_t service, uint32_t handle,
+                                  uint64_t y, uint64_t z)
 {
     MMIXSemihostingCall call = mmix_semihosting_decode_call(service, handle);
+
+    if (!semihosting_enabled(!mmix_cpu_is_privileged(env))) {
+        helper_mmix_trap(env, insn, y, z);
+    }
 
     switch (call.action) {
     case MMIX_SEMIHOSTING_ACTION_HALT:

@@ -216,8 +216,12 @@ static bool trans_RESUME(DisasContext *ctx, arg_xyz *a)
 static bool trans_TRAP(DisasContext *ctx, arg_xyz *a)
 {
     if (a->x == 0) {
-        gen_helper_mmix_semihosting_trap(tcg_env, tcg_constant_i32(a->y),
-                                          tcg_constant_i32(a->z));
+        gen_helper_mmix_semihosting_trap(tcg_env,
+                                         tcg_constant_i32(ctx->insn),
+                                         tcg_constant_i32(a->y),
+                                         tcg_constant_i32(a->z),
+                                         gen_load_reg(a->y),
+                                         gen_load_reg(a->z));
         return true;
     }
 

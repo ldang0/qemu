@@ -585,6 +585,57 @@ def ftell_failure_test(name, handle):
     )
 
 
+def _semihosting_userspace_halt_test(userspace_enabled):
+    handler = MMIX_RAW_ENTRY + 0x80
+    program = raw_direct_image(program_with_handler(
+        [
+            wyde(SETL, R1, handler),
+            insn(PUT, SR_T, 0, R1),
+            *set_octa(R2, RQ_PROGRAM_K),
+            insn(PUT, SR_K, 0, R2),
+            halt(),
+        ],
+        0x80,
+        [
+            insn(GET, R40, 0, SR_WW),
+            insn(GET, R41, 0, SR_XX),
+            insn(GET, R42, 0, SR_YY),
+            insn(GET, R43, 0, SR_ZZ),
+            insn(GET, R44, 0, SR_K),
+            halt(),
+        ],
+    ))
+
+    if userspace_enabled:
+        return MMIXTest(
+            "semihosting-userspace-halt-enabled",
+            program,
+            pc=MMIX_RAW_ENTRY + 0x1c,
+            regs={R2: RQ_PROGRAM_K},
+            qemu_args=("-semihosting-config", "enable=on,userspace=on"),
+        )
+
+    return MMIXTest(
+        "semihosting-userspace-halt-denied",
+        program,
+        pc=handler + 5 * 4,
+        regs={
+            R40: MMIX_RAW_ENTRY + 0x20,
+            R41: 1 << 63,
+            R42: 0,
+            R43: 0,
+            R44: 0,
+        },
+        qemu_args=("-semihosting",),
+    )
+
+
+SEMIHOSTING_PERMISSION_TESTS = [
+    _semihosting_userspace_halt_test(False),
+    _semihosting_userspace_halt_test(True),
+]
+
+
 SEMIHOSTING_TESTS = [
     MMIXTest(
         "semihosting-halt",

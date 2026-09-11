@@ -15,8 +15,36 @@ EXPECTED_FAILURE_TESTS = [
     ),
 ]
 
-SEMIHOSTING_DISABLED_FAILURE_TESTS = [
-    MMIXExpectedFailure(
+
+def semihosting_disabled_trap_test(name, program):
+    handler = MMIX_RAW_ENTRY + 0x100
+    image = raw_direct_image(
+        program_with_handler(
+            [
+                wyde(SETL, R1, handler),
+                insn(PUT, SR_T, 0, R1),
+                program,
+            ],
+            0x100,
+            [jump(JMP, 0)],
+        )
+    )
+
+    return MMIXExpectedFailure(
+        name,
+        image,
+        ("MMIX trap from",),
+        ("MMIX hosted", "MMIX emulator failure", "MMIX test exit",
+         "MMIX dynamic trap causes="),
+    )
+
+
+SEMIHOSTING_DISABLED_TRAP_TESTS = [
+    semihosting_disabled_trap_test(
+        "semihosting-halt-disabled",
+        insn(TRAP, 0, MMIX_SEMIHOSTING_HALT, 0),
+    ),
+    semihosting_disabled_trap_test(
         "semihosting-fputs-stdout-disabled",
         b"".join(
             [
@@ -25,10 +53,8 @@ SEMIHOSTING_DISABLED_FAILURE_TESTS = [
                      MMIX_SEMIHOSTING_STDOUT),
             ]
         ),
-        ("MMIX semihosting disabled for hosted TRAP service 7 handle 1",
-         "MMIX emulator failure"),
     ),
-    MMIXExpectedFailure(
+    semihosting_disabled_trap_test(
         "semihosting-fputs-stderr-disabled",
         b"".join(
             [
@@ -37,47 +63,33 @@ SEMIHOSTING_DISABLED_FAILURE_TESTS = [
                      MMIX_SEMIHOSTING_STDERR),
             ]
         ),
-        ("MMIX semihosting disabled for hosted TRAP service 7 handle 2",
-         "MMIX emulator failure"),
     ),
-    MMIXExpectedFailure(
+    semihosting_disabled_trap_test(
         "semihosting-fread-disabled",
         insn(TRAP, 0, MMIX_SEMIHOSTING_FREAD,
              MMIX_SEMIHOSTING_FIRST_FILE_HANDLE),
-        ("MMIX semihosting disabled for hosted TRAP service 3 handle 3",
-         "MMIX emulator failure"),
     ),
-    MMIXExpectedFailure(
+    semihosting_disabled_trap_test(
         "semihosting-fread-stdin-disabled",
         insn(TRAP, 0, MMIX_SEMIHOSTING_FREAD, MMIX_SEMIHOSTING_STDIN),
-        ("MMIX semihosting disabled for hosted TRAP service 3 handle 0",
-         "MMIX emulator failure"),
     ),
-    MMIXExpectedFailure(
+    semihosting_disabled_trap_test(
         "semihosting-fgets-stdin-disabled",
         insn(TRAP, 0, MMIX_SEMIHOSTING_FGETS, MMIX_SEMIHOSTING_STDIN),
-        ("MMIX semihosting disabled for hosted TRAP service 4 handle 0",
-         "MMIX emulator failure"),
     ),
-    MMIXExpectedFailure(
+    semihosting_disabled_trap_test(
         "semihosting-fwrite-stdout-disabled",
         insn(TRAP, 0, MMIX_SEMIHOSTING_FWRITE, MMIX_SEMIHOSTING_STDOUT),
-        ("MMIX semihosting disabled for hosted TRAP service 6 handle 1",
-         "MMIX emulator failure"),
     ),
-    MMIXExpectedFailure(
+    semihosting_disabled_trap_test(
         "semihosting-fseek-disabled",
         insn(TRAP, 0, MMIX_SEMIHOSTING_FSEEK,
              MMIX_SEMIHOSTING_FIRST_FILE_HANDLE),
-        ("MMIX semihosting disabled for hosted TRAP service 9 handle 3",
-         "MMIX emulator failure"),
     ),
-    MMIXExpectedFailure(
+    semihosting_disabled_trap_test(
         "semihosting-ftell-disabled",
         insn(TRAP, 0, MMIX_SEMIHOSTING_FTELL,
              MMIX_SEMIHOSTING_FIRST_FILE_HANDLE),
-        ("MMIX semihosting disabled for hosted TRAP service 10 handle 3",
-         "MMIX emulator failure"),
     ),
 ]
 

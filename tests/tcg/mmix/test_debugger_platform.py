@@ -25,7 +25,7 @@ from cases.mmo_hosted import (
 from cases.raw_loader import RAW_DIRECT_ISA_TESTS
 from lib.gdb_remote import GDBRemote
 from lib.mmix_asm import halt
-from lib.qemu import build_kernel_command, read_log
+from lib.qemu import QEMU_SEMIHOSTING_ARGS, build_kernel_command, read_log
 
 
 MMIX_GDB_SPECIAL_REGISTER_BASE = 256
@@ -47,6 +47,7 @@ def _gdb_session(qemu, workdir, name, image, *, suffix=".mmo", qemu_args=()):
             path.unlink()
 
     debug_args = [
+        *QEMU_SEMIHOSTING_ARGS,
         *qemu_args,
         "-gdb",
         f"unix:path={socket_path},server=on,wait=off",
@@ -398,7 +399,6 @@ def test_mmo_hosted_snapshot_rejects_open_file(qemu, workdir):
     qemu_args = (
         "-qmp",
         "stdio",
-        "-semihosting",
         "-drive",
         f"file={snapshot_path},format=qcow2,if=none",
     )
