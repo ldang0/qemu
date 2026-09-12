@@ -91,13 +91,18 @@ def masked_interrupt_request_program():
         insn(PUTI, SR_Q, 0, 0),
         insn(GET, R22, 0, SR_Q),
 
-        # Claiming withdraws the CPU input, but rQ remains latched until PUT.
+        # Claim and disable the timer to withdraw the device request.
         *set_octa(R7, intc_claim),
         insn(LDOU, R23, R7, R0),
+        insn(STOU, R0, R4, R0),
+
+        # Writing the value read from rQ must preserve its latched request.
         insn(GET, R24, 0, SR_Q),
-        insn(PUTI, SR_Q, 0, 0),
+        insn(PUT, SR_Q, 0, R24),
         insn(GET, R25, 0, SR_Q),
-        insn(GET, R26, 0, SR_K),
+        insn(PUTI, SR_Q, 0, 0),
+        insn(GET, R26, 0, SR_Q),
+        insn(GET, R27, 0, SR_K),
         halt(),
     ]
     return b"".join(program), (len(program) - 1) * 4
@@ -1459,8 +1464,9 @@ INTERRUPT_TESTS = [
             R22: RQ_INTERRUPT_CONTROLLER,
             R23: MMIX_VIRT_TIMER_IRQ_BASE,
             R24: RQ_INTERRUPT_CONTROLLER,
-            R25: 0,
+            R25: RQ_INTERRUPT_CONTROLLER,
             R26: 0,
+            R27: 0,
         },
     ),
     MMIXTest(

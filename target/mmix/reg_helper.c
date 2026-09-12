@@ -423,8 +423,10 @@ uint64_t helper_mmix_read_sreg(CPUMMIXState *env, uint32_t reg)
 
 static void mmix_cpu_put_rq(CPUMMIXState *env, uint64_t val)
 {
-    /* Software cannot manufacture a virtual hardware request. */
-    val &= ~MMIX_RQ_HARDWARE_MASK;
+    uint64_t latched = env->sregs[MMIX_SREG_RQ] & MMIX_RQ_HARDWARE_MASK;
+
+    /* Software may retain a latched request, but cannot manufacture one. */
+    val &= ~MMIX_RQ_HARDWARE_MASK | latched;
     val |= env->rq_new_bits;
     if (env->interrupt_controller_level) {
         val |= MMIX_RQ_INTERRUPT_CONTROLLER;
