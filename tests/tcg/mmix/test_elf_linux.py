@@ -6,17 +6,25 @@ import pytest
 
 from cases.common import case_id
 from cases.elf_linux import (
+    LINUX_DIRECT_ALIAS_TESTS,
     LINUX_ENTRY_STATE_TESTS,
     LINUX_PREFLIGHT_REJECTION_TESTS,
     LINUX_SMP_ENTRY_TESTS,
     LINUX_STATE_TESTS,
 )
 from lib.execution import (
+    run_elf_test,
     run_linux_entry_state_test,
     run_linux_smp_entry_test,
     run_linux_state_test,
     run_process_failure,
 )
+
+
+@pytest.mark.boot_integration
+@pytest.mark.parametrize("test", LINUX_DIRECT_ALIAS_TESTS, ids=case_id)
+def test_elf_linux_direct_alias(qemu, workdir, test):
+    run_elf_test(qemu, workdir, test)
 
 
 @pytest.mark.boot_integration

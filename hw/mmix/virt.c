@@ -1498,9 +1498,9 @@ static bool mmix_virt_prepare_kernel(MMIXVirtMachineState *vms,
             return false;
         }
         if (vms->elf_startup_abi == MMIX_ELF_STARTUP_ABI_LINUX) {
-            return mmix_prepare_elf_kernel(machine->kernel_filename,
-                                           &vms->ram, info, image_ranges,
-                                           elf_source, errp);
+            return mmix_prepare_linux_elf_kernel(
+                machine->kernel_filename, &vms->ram, info, image_ranges,
+                elf_source, errp);
         }
         return mmix_preflight_elf_kernel(machine->kernel_filename, &vms->ram,
                                          info, image_ranges, errp);

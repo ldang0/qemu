@@ -9,6 +9,7 @@ from .smp import SMPProgram, smp_load, smp_store, smp_sync
 
 
 LINUX_MACHINE = ("-machine", "elf-startup-abi=linux")
+LINUX_NEGATIVE_ALIAS_BIT = 1 << 63
 
 
 @dataclasses.dataclass(frozen=True)
@@ -38,6 +39,47 @@ class MMIXLinuxStateTest:
     idle_pcs: tuple[int, ...]
     bss: int
     qemu_args: tuple[str, ...]
+
+
+def linux_direct_alias_image():
+    bootstrap_address = 0x1000
+    kernel_address = 0x2000
+    kernel_virtual_address = LINUX_NEGATIVE_ALIAS_BIT | kernel_address
+    bootstrap = b"".join((
+        *set_octa(R32, kernel_virtual_address),
+        insn(GO, R33, R32, R0),
+    ))
+    kernel = b"".join((wyde(SETL, R34, 0x55), halt()))
+    bootstrap_offset = 0x200
+    kernel_offset = 0x300
+    headers = b"".join((
+        elf64_phdr(bootstrap_address, bootstrap, offset=bootstrap_offset),
+        elf64_phdr(kernel_address, kernel, offset=kernel_offset,
+                   virtual_address=kernel_virtual_address),
+    ))
+    image = bytearray(elf64_header(entry=bootstrap_address, phnum=2) +
+                      headers)
+
+    image.extend(bytes(bootstrap_offset - len(image)))
+    image.extend(bootstrap)
+    image.extend(bytes(kernel_offset - len(image)))
+    image.extend(kernel)
+    return bytes(image)
+
+
+LINUX_DIRECT_ALIAS_IMAGE = linux_direct_alias_image()
+LINUX_DIRECT_ALIAS_ADDRESS = LINUX_NEGATIVE_ALIAS_BIT | 0x2000
+
+
+LINUX_DIRECT_ALIAS_TESTS = [
+    MMIXELFTest(
+        "elf-linux-negative-direct-alias",
+        LINUX_DIRECT_ALIAS_IMAGE,
+        pc=LINUX_DIRECT_ALIAS_ADDRESS + 4,
+        regs={R34: 0x55},
+        qemu_args=LINUX_MACHINE,
+    ),
+]
 
 
 LINUX_ENTRY_STATE_TESTS = [
@@ -236,6 +278,37 @@ LINUX_STATE_TESTS = [linux_state_program()]
 
 
 LINUX_PREFLIGHT_REJECTION_TESTS = [
+    MMIXProcessFailure(
+        "elf-bare-negative-direct-alias",
+        LINUX_DIRECT_ALIAS_IMAGE,
+        (),
+        ("does not use identical virtual and physical addresses",),
+    ),
+    MMIXProcessFailure(
+        "elf-argc-argv-negative-direct-alias",
+        LINUX_DIRECT_ALIAS_IMAGE,
+        (
+            "-machine", "elf-startup-abi=argc-argv",
+            "-semihosting-config", "enable=on,userspace=on",
+        ),
+        ("does not use identical virtual and physical addresses",),
+    ),
+    MMIXProcessFailure(
+        "elf-linux-arbitrary-virtual-address",
+        elf64_patch_phdr_field(
+            LINUX_DIRECT_ALIAS_IMAGE, 1, "virtual_address", 0x4000
+        ),
+        LINUX_MACHINE,
+        ("does not use an identity or negative direct-alias mapping",),
+    ),
+    MMIXProcessFailure(
+        "elf-linux-negative-entry",
+        elf64_patch_ehdr_field(
+            LINUX_DIRECT_ALIAS_IMAGE, "entry", LINUX_DIRECT_ALIAS_ADDRESS
+        ),
+        LINUX_MACHINE,
+        ("positive identity-mapped executable PT_LOAD segment",),
+    ),
     MMIXProcessFailure(
         "elf-retired-bootinfo-startup-abi",
         elf64_image(0, halt()),
