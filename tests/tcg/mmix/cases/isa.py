@@ -188,6 +188,78 @@ def retained_asn_ldvts_test():
     )
 
 
+def sync6_translation_cache_flush_test():
+    virtual_target = 0x2000
+    first_physical = 0x6000
+    second_physical = 0x8000
+    first_continuation = 0x400
+    second_continuation = 0x500
+    final_continuation = 0x600
+    negative = 1 << 63
+    first_target = [
+        insn(ADDI, R20, R20, 1),
+        insn(GO, R13, R12, R0),
+    ]
+    second_target = [
+        insn(ADDI, R20, R20, 0x10),
+        insn(GO, R13, R12, R0),
+    ]
+    first_target_octa = int.from_bytes(b"".join(first_target), "big")
+    second_target_octa = int.from_bytes(b"".join(second_target), "big")
+    bootstrap = [
+        *set_octa(R1, VM_PAGE_TABLE),
+        wyde(SETL, R2, 7),
+        insn(STOU, R2, R1, R0),
+        *set_octa(R2, first_physical | 7),
+        insn(STOUI, R2, R1, 8),
+        *set_octa(R3, VM_RV_PAGE0),
+        insn(PUT, SR_V, R0, R3),
+        wyde(SETL, R10, virtual_target),
+        insn(LDOU, R23, R10, R0),
+        *set_octa(R12, negative | first_continuation),
+        insn(GO, R13, R10, R0),
+    ]
+    remap = [
+        *set_octa(R14, negative | VM_PAGE_TABLE | 8),
+        *set_octa(R15, second_physical | 7),
+        insn(STOU, R15, R14, R0),
+        insn(LDOU, R24, R10, R0),
+        *set_octa(R12, negative | second_continuation),
+        insn(GO, R13, R10, R0),
+    ]
+    flush = [
+        wyde(SETL, R16, virtual_target | 7),
+        insn(LDVTS, R21, R16, R0),
+        jump(SYNC, 6),
+        insn(LDVTS, R22, R16, R0),
+        insn(LDOU, R25, R10, R0),
+        *set_octa(R12, negative | final_continuation),
+        insn(GO, R13, R10, R0),
+    ]
+    image = program_with_regions(
+        (0, bootstrap),
+        (first_continuation, remap),
+        (second_continuation, flush),
+        (final_continuation, [halt()]),
+        (first_physical, first_target),
+        (second_physical, second_target),
+    )
+
+    return MMIXTest(
+        "sync6-flushes-translation-caches",
+        image,
+        pc=negative | final_continuation,
+        regs={
+            R20: 0x12,
+            R21: 3,
+            R22: 0,
+            R23: first_target_octa,
+            R24: first_target_octa,
+            R25: second_target_octa,
+        },
+    )
+
+
 def forced_data_translation_program(main, handler, initial_value,
                                     extra_regions=()):
     bootstrap = [
@@ -2010,6 +2082,7 @@ ISA_TESTS = [
     retained_asn_switch_test(),
     retained_page_size_test(),
     retained_asn_ldvts_test(),
+    sync6_translation_cache_flush_test(),
     MMIXTest(
         "raw-image-startup-registers",
         b"".join(

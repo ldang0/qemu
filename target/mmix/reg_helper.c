@@ -756,6 +756,9 @@ void helper_mmix_sync(CPUMMIXState *env, uint32_t insn, uint32_t mode)
     if (mode >= 4 && mode <= 7 && !mmix_cpu_is_privileged(env)) {
         mmix_cpu_raise_dynamic_trap(env, MMIX_RQ_PROGRAM_K, insn);
     }
+    if (mode == 6) {
+        mmix_cpu_flush_translation_caches(env);
+    }
 }
 
 uint64_t helper_mmix_ldvts(CPUMMIXState *env, uint32_t insn, uint64_t key)
