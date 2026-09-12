@@ -66,6 +66,7 @@ typedef struct MMIXFDTCase {
     unsigned int cpu_count;
     const char *command_line;
     bool has_initrd;
+    bool has_graphics;
 } MMIXFDTCase;
 
 static int node_offset(const void *fdt, const char *path)
@@ -533,7 +534,7 @@ static void assert_virtio_node_order(const void *fdt)
 }
 
 static void assert_active_devices(QTestState *qts, const void *fdt,
-                                  uint32_t intc_phandle)
+                                  uint32_t intc_phandle, bool has_graphics)
 {
     static const char *const power_compatible[] = {
         "qemu,mmix-virt-syscon",
@@ -545,14 +546,6 @@ static void assert_active_devices(QTestState *qts, const void *fdt,
     const char *watchdog = "/soc/watchdog@1000010030000";
     const char *power = "/soc/syscon@1000010040000";
     const char *control = "/soc/framebuffer@1000018000000";
-    uint64_t framebuffer = qtest_readq(
-        qts, MMIX_FRAMEBUFFER_CONTROL_BASE +
-             MMIX_FRAMEBUFFER_BASE_REGISTER);
-    g_autofree char *memory = g_strdup_printf(
-        "/reserved-memory/framebuffer@%" PRIx64, framebuffer);
-    g_autofree char *simple = g_strdup_printf(
-        "/chosen/framebuffer@%" PRIx64, framebuffer);
-    uint32_t framebuffer_phandle;
     unsigned int slot;
 
     assert_string(fdt, uart, "compatible", "ns16550a");
@@ -610,22 +603,38 @@ static void assert_active_devices(QTestState *qts, const void *fdt,
                  UINT64_C(0x0001000014000000), 0x18);
     assert_empty(fdt, "/fw-cfg@1000014000000", "dma-coherent");
 
-    framebuffer_phandle = get_u32(fdt, memory, "phandle");
-    assert_string(fdt, memory, "compatible",
-                  "qemu,mmix-framebuffer-memory");
-    assert_range(fdt, memory, framebuffer, MMIX_FRAMEBUFFER_SIZE);
-    assert_empty(fdt, memory, "no-map");
-    assert_string(fdt, control, "compatible", "qemu,mmix-framebuffer");
-    assert_range(fdt, control, MMIX_FRAMEBUFFER_CONTROL_BASE, 0x1000);
-    assert_u32(fdt, control, "memory-region", framebuffer_phandle);
-    assert_string(fdt, simple, "compatible", "simple-framebuffer");
-    assert_range(fdt, simple, framebuffer, MMIX_FRAMEBUFFER_SIZE);
-    assert_u32(fdt, simple, "width", MMIX_FRAMEBUFFER_WIDTH);
-    assert_u32(fdt, simple, "height", MMIX_FRAMEBUFFER_HEIGHT);
-    assert_u32(fdt, simple, "stride", MMIX_FRAMEBUFFER_STRIDE);
-    assert_string(fdt, simple, "format", "x8r8g8b8");
-    assert_string(fdt, simple, "status", "okay");
-    assert_u32(fdt, simple, "memory-region", framebuffer_phandle);
+    if (has_graphics) {
+        uint64_t framebuffer = qtest_readq(
+            qts, MMIX_FRAMEBUFFER_CONTROL_BASE +
+                 MMIX_FRAMEBUFFER_BASE_REGISTER);
+        g_autofree char *memory = g_strdup_printf(
+            "/reserved-memory/framebuffer@%" PRIx64, framebuffer);
+        g_autofree char *simple = g_strdup_printf(
+            "/chosen/framebuffer@%" PRIx64, framebuffer);
+        uint32_t framebuffer_phandle = get_u32(fdt, memory, "phandle");
+
+        assert_string(fdt, memory, "compatible",
+                      "qemu,mmix-framebuffer-memory");
+        assert_range(fdt, memory, framebuffer, MMIX_FRAMEBUFFER_SIZE);
+        assert_empty(fdt, memory, "no-map");
+        assert_string(fdt, control, "compatible", "qemu,mmix-framebuffer");
+        assert_range(fdt, control, MMIX_FRAMEBUFFER_CONTROL_BASE, 0x1000);
+        assert_u32(fdt, control, "memory-region", framebuffer_phandle);
+        assert_string(fdt, simple, "compatible", "simple-framebuffer");
+        assert_range(fdt, simple, framebuffer, MMIX_FRAMEBUFFER_SIZE);
+        assert_u32(fdt, simple, "width", MMIX_FRAMEBUFFER_WIDTH);
+        assert_u32(fdt, simple, "height", MMIX_FRAMEBUFFER_HEIGHT);
+        assert_u32(fdt, simple, "stride", MMIX_FRAMEBUFFER_STRIDE);
+        assert_string(fdt, simple, "format", "x8r8g8b8");
+        assert_string(fdt, simple, "status", "okay");
+        assert_u32(fdt, simple, "memory-region", framebuffer_phandle);
+    } else {
+        g_assert_cmpint(fdt_path_offset(fdt, control), ==,
+                        -FDT_ERR_NOTFOUND);
+        assert_compatible_count(fdt, "qemu,mmix-framebuffer-memory", 0);
+        assert_compatible_count(fdt, "qemu,mmix-framebuffer", 0);
+        assert_compatible_count(fdt, "simple-framebuffer", 0);
+    }
 
     for (slot = 0; slot < MMIX_VIRTIO_COUNT; slot++) {
         uint64_t base = MMIX_VIRTIO_BASE + slot * MMIX_CONTEXT_STRIDE;
@@ -722,8 +731,9 @@ static void test_direct_boot_fdt(gconstpointer opaque)
         initrd = create_initrd(directory);
     }
     args = g_strdup_printf(
-        "-machine virt,elf-startup-abi=linux -m %s -smp %u "
+        "-machine virt,elf-startup-abi=linux%s -m %s -smp %u "
         "-kernel %s -append '%s'%s%s",
+        test->has_graphics ? "" : ",graphics=off",
         test->memory, test->cpu_count, kernel, test->command_line,
         initrd ? " -initrd " : "", initrd ?: "");
     qts = qtest_init(args);
@@ -735,7 +745,7 @@ static void test_direct_boot_fdt(gconstpointer opaque)
     intc_phandle = get_u32(
         fdt, "/soc/interrupt-controller@1000030000000", "phandle");
     assert_interrupt_topology(qts, fdt, test->cpu_count, intc_phandle);
-    assert_active_devices(qts, fdt, intc_phandle);
+    assert_active_devices(qts, fdt, intc_phandle, test->has_graphics);
     assert_reservations(qts, fdt, fdt_address, fdt_size,
                         test->has_initrd);
     qtest_quit(qts);
@@ -756,6 +766,7 @@ int main(int argc, char **argv)
             .ram_size = 128 * MiB,
             .cpu_count = 1,
             .command_line = "",
+            .has_graphics = true,
         },
         {
             .name = "default-ram",
@@ -763,6 +774,7 @@ int main(int argc, char **argv)
             .ram_size = 512 * MiB,
             .cpu_count = 1,
             .command_line = "console=ttyS0",
+            .has_graphics = true,
         },
         {
             .name = "large-smp-initrd",
@@ -771,6 +783,14 @@ int main(int argc, char **argv)
             .cpu_count = MMIX_MAX_CPUS,
             .command_line = "console=ttyS0 root=/dev/vda",
             .has_initrd = true,
+            .has_graphics = true,
+        },
+        {
+            .name = "graphics-off",
+            .memory = "512M",
+            .ram_size = 512 * MiB,
+            .cpu_count = 1,
+            .command_line = "console=ttyS0",
         },
     };
     unsigned int i;

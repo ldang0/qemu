@@ -794,12 +794,11 @@ static bool mmix_virt_plan_ram(MMIXVirtMachineState *vms,
                                Error **errp)
 {
     MachineState *machine = MACHINE(vms);
-    enum {
-        MMIX_RAM_REQUEST_FRAMEBUFFER,
-        MMIX_RAM_REQUEST_STACK_BASE,
-    };
+    bool has_framebuffer = machine->enable_graphics;
+    size_t framebuffer_count = has_framebuffer ? 1 : 0;
+    size_t stack_index = framebuffer_count;
     size_t stack_count = vms->mmo_memory ? 0 : machine->smp.cpus;
-    size_t argument_index = MMIX_RAM_REQUEST_STACK_BASE + stack_count;
+    size_t argument_index = stack_index + stack_count;
     bool has_arguments = arguments != NULL;
     size_t initrd_index = argument_index + has_arguments;
     bool has_initrd = linux_info && linux_info->has_initrd;
@@ -833,10 +832,12 @@ static bool mmix_virt_plan_ram(MMIXVirtMachineState *vms,
     MMIXLinuxBootInfo planned_linux;
     unsigned int i;
 
-    requests[MMIX_RAM_REQUEST_FRAMEBUFFER] = framebuffer_request;
+    if (has_framebuffer) {
+        requests[0] = framebuffer_request;
+    }
     for (i = 0; i < stack_count; i++) {
         stack_names[i] = g_strdup_printf("initial-stack-%u", i);
-        requests[MMIX_RAM_REQUEST_STACK_BASE + i] =
+        requests[stack_index + i] =
             (MMIXRAMReservationRequest) {
                 .owner = "mmix-cpu",
                 .name = stack_names[i],
@@ -918,20 +919,20 @@ static bool mmix_virt_plan_ram(MMIXVirtMachineState *vms,
             mmix_boot_plan_reservation(preliminary_plan, initrd_index) : NULL;
         MMIXFDTConfig config;
 
-        framebuffer = mmix_boot_plan_reservation(
-            preliminary_plan, MMIX_RAM_REQUEST_FRAMEBUFFER);
+        framebuffer = has_framebuffer ?
+            mmix_boot_plan_reservation(preliminary_plan, 0) : NULL;
         for (i = 0; i < stack_count; i++) {
             fdt_stacks[i] = mmix_boot_plan_reservation(
-                preliminary_plan,
-                MMIX_RAM_REQUEST_STACK_BASE + i)->content;
+                preliminary_plan, stack_index + i)->content;
         }
         config = (MMIXFDTConfig) {
             .ram_size = machine->ram_size,
             .command_line = linux_info->command_line,
             .cpu_count = machine->smp.cpus,
             .cpu_stacks = fdt_stacks,
-            .has_framebuffer = true,
-            .framebuffer = framebuffer->content,
+            .has_framebuffer = has_framebuffer,
+            .framebuffer = has_framebuffer ? framebuffer->content :
+                           (MMIXPhysRange) { 0 },
             .has_flash = true,
             .has_fw_cfg = true,
             .linux_direct = true,
@@ -1033,7 +1034,7 @@ static bool mmix_virt_plan_ram(MMIXVirtMachineState *vms,
         }
         for (i = 0; i < stack_count; i++) {
             const MMIXRAMReservation *stack = mmix_boot_plan_reservation(
-                boot_plan, MMIX_RAM_REQUEST_STACK_BASE + i);
+                boot_plan, stack_index + i);
             g_autofree char *name =
                 g_strdup_printf("CPU %u bootstrap stack", i);
 
@@ -1058,17 +1059,17 @@ static bool mmix_virt_plan_ram(MMIXVirtMachineState *vms,
     vms->argument_argv = has_arguments ?
         vms->argument_base + sizeof(uint64_t) : 0;
 
-    framebuffer = mmix_boot_plan_reservation(
-        vms->boot_plan, MMIX_RAM_REQUEST_FRAMEBUFFER);
-    vms->framebuffer_base = framebuffer->content.start;
-    vms->framebuffer_size =
-        mmix_phys_range_size(&framebuffer->content);
+    framebuffer = has_framebuffer ?
+        mmix_boot_plan_reservation(vms->boot_plan, 0) : NULL;
+    vms->framebuffer_base = has_framebuffer ? framebuffer->content.start : 0;
+    vms->framebuffer_size = has_framebuffer ?
+        mmix_phys_range_size(&framebuffer->content) : 0;
     for (i = 0; i < machine->smp.cpus; i++) {
         if (vms->mmo_memory) {
             vms->initial_stacks[i] = 0;
         } else {
             const MMIXRAMReservation *stack = mmix_boot_plan_reservation(
-                vms->boot_plan, MMIX_RAM_REQUEST_STACK_BASE + i);
+                vms->boot_plan, stack_index + i);
 
             vms->initial_stacks[i] = stack->content.start;
         }
@@ -1113,7 +1114,7 @@ static bool mmix_virt_prepare_dump_fdt(MMIXVirtMachineState *vms,
         .command_line = machine->kernel_cmdline ?: "",
         .cpu_count = machine->smp.cpus,
         .cpu_stacks = stacks,
-        .has_framebuffer = true,
+        .has_framebuffer = machine->enable_graphics,
         .framebuffer = {
             .start = vms->framebuffer_base,
             .end = vms->framebuffer_base + vms->framebuffer_size,
@@ -1700,14 +1701,16 @@ static void mmix_virt_init(MachineState *machine)
     sysbus_realize_and_unref(SYS_BUS_DEVICE(power), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(power), 0, MMIX_VIRT_POWER_BASE);
 
-    framebuffer = qdev_new(TYPE_MMIX_FRAMEBUFFER);
-    object_property_add_child(OBJECT(machine), "framebuffer",
-                              OBJECT(framebuffer));
-    qdev_prop_set_uint64(framebuffer, "base", vms->framebuffer_base);
-    qdev_prop_set_uint64(framebuffer, "size", vms->framebuffer_size);
-    sysbus_realize_and_unref(SYS_BUS_DEVICE(framebuffer), &error_fatal);
-    sysbus_mmio_map(SYS_BUS_DEVICE(framebuffer), 0,
-                    MMIX_VIRT_FRAMEBUFFER_CONTROL_BASE);
+    if (machine->enable_graphics) {
+        framebuffer = qdev_new(TYPE_MMIX_FRAMEBUFFER);
+        object_property_add_child(OBJECT(machine), "framebuffer",
+                                  OBJECT(framebuffer));
+        qdev_prop_set_uint64(framebuffer, "base", vms->framebuffer_base);
+        qdev_prop_set_uint64(framebuffer, "size", vms->framebuffer_size);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(framebuffer), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(framebuffer), 0,
+                        MMIX_VIRT_FRAMEBUFFER_CONTROL_BASE);
+    }
 
     ipi = qdev_new(TYPE_MMIX_IPI);
     object_property_add_child(OBJECT(machine), "ipi", OBJECT(ipi));

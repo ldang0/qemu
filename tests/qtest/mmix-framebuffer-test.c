@@ -206,6 +206,23 @@ static bool mmix_qmp_has_command(QTestState *qts, const char *command)
     return found;
 }
 
+static bool mmix_machine_has_child(QTestState *qts, const char *name)
+{
+    g_autoptr(QDict) response = qtest_qmp(
+        qts, "{'execute':'qom-list','arguments':{'path':'/machine'}}");
+    QList *properties = qdict_get_qlist(response, "return");
+    const QListEntry *entry;
+
+    QLIST_FOREACH_ENTRY(properties, entry) {
+        QDict *property = qobject_to(QDict, qlist_entry_obj(entry));
+
+        if (g_str_equal(qdict_get_str(property, "name"), name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void mmix_framebuffer_assert_placement(const char *memory,
                                               uint64_t ram_size)
 {
@@ -336,6 +353,20 @@ static void test_mmix_framebuffer_reset(void)
     qtest_quit(qts);
 }
 
+static void test_mmix_framebuffer_graphics_off(void)
+{
+    QTestState *qts = qtest_init("-machine virt,graphics=off");
+    g_autofree char *mtree = qtest_hmp(qts, "info mtree -f");
+
+    g_assert_cmphex(mmix_initial_stack(qts, 0), ==,
+                    MMIX_VIRT_DEFAULT_RAM_SIZE -
+                    MMIX_VIRT_INITIAL_STACK_SIZE);
+    g_assert_false(mmix_machine_has_child(qts, "framebuffer"));
+    g_assert_null(strstr(mtree, "mmix-framebuffer"));
+
+    qtest_quit(qts);
+}
+
 static void test_mmix_framebuffer_render(void)
 {
     QTestState *qts = qtest_init("-machine virt");
@@ -426,6 +457,8 @@ int main(int argc, char **argv)
                    test_mmix_framebuffer_memory_and_flush);
     qtest_add_func("/mmix/framebuffer/reset",
                    test_mmix_framebuffer_reset);
+    qtest_add_func("/mmix/framebuffer/graphics-off",
+                   test_mmix_framebuffer_graphics_off);
     qtest_add_func("/mmix/framebuffer/render",
                    test_mmix_framebuffer_render);
     qtest_add_func("/mmix/framebuffer/startup-failure",
